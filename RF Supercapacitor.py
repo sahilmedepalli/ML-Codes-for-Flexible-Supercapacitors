@@ -16,7 +16,7 @@ file_name = str(input('Name of CSV file:'))
 with open(file_name + '.csv', 'r') as datfile:
     X = [[float(x), float(y)] for x, y in csv.reader(datfile, delimiter= ',')]
     for row_var in X:
-        if row_var[0] != 'Capacitance' and row_var[1] != 'Cycle no.':
+        if row_var[0] != 'Cycle no.' and row_var[1] != 'Capacitance':
             x.append(float(row_var[0]))
             y.append(float(row_var[1]))
             
