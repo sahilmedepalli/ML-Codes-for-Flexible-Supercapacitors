@@ -35,5 +35,8 @@ plt.plot(x, y, 'b-')
 plt.plot(x, yhat,'ro')
 plt.show()
 
+cycleno = int(input('Cycle no.?'))
+print('Prediction:', yhat[cycleno-1])
+
 
 
