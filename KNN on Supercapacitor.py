@@ -54,7 +54,7 @@ with open(file_name + '.csv', 'r') as datfile:
     
 print(capacitance_vs_cycleno)    
     
-cap = float(input('Capacitance (F)?'))
+cap = float(input('Cycle no.?'))
 capacitance = []
 capacitance.append(cap)
 k = int(input('K-value to use'))
