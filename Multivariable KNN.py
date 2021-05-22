@@ -63,5 +63,5 @@ capacitance.append(cap)
 k = int(input('K-value to use'))
 
 #Last printed value id the predicted # of cycles for the supercapacitor
-print('Prediction:', knn(dataset, capacitance , k, distance_fn=euclidean_distance, choice_fn=mean))
+print('Prediction for KNN:', knn(dataset, capacitance , k, distance_fn=euclidean_distance, choice_fn=mean))
 
