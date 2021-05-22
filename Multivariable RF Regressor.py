@@ -35,4 +35,4 @@ plt.plot(x, zhat,'ro')
 plt.show()
 
 cycleno = int(input('Cycle no.?'))
-print('Prediction:', zhat[cycleno-1])
+print('Prediction for RF:', zhat[cycleno-1])
