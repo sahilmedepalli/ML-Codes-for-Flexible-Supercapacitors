@@ -299,7 +299,7 @@ def DielecConst(series, predictions, actual):
         
     print("KMSE",MSE(ConstraintRangeArr,back2CapArr))
     
-    f=open("ConstrainedCapp.csv", "a")
+    f=open("DCconsData.csv", "a")
     for i in range(len(back2CapArr)):
         f.write(str(back2CapArr[i]))
         f.write("\n")
@@ -332,19 +332,46 @@ def DielecConst(series, predictions, actual):
 
 ###Every 50##########################################################################
 def every50(series,predictions,actual):
-    firstVal=actual[0]
-    count=0;
-    for i in range (len(actual)):
-        if(count%50==0):
-            if(actual[i]>=firstVal):
-                actual[i]=firstVal
-        count+=1
-                
-                
-    f=open("Every50Cap.csv", "a")
+    twoDarr=[]
+    count=0
+    vals=[]
+    ideaT=[]
     for i in range(len(actual)):
-        f.write(str(actual[i]))
-        f.write("\n")
+        if(count<50):
+            vals.append(actual[i])
+            ideaT.append(actual[i])
+            count+=1
+            if(count==49):    
+                twoDarr.append(vals)
+                vals.clear()
+                count=0
+    
+    for i in range(len(twoDarr)-1):
+        for j in range(len(twoDarr[i])):
+            if(twoDarr[i][-1]>twoDarr[i][0]):
+                twoDarr[i][-1]=twoDarr[i][0]
+            if(twoDarr[i+1][0]>twoDarr[i][-1]):    
+                twoDarr[i+1][0]=twoDarr[i][-1]
+                
+    c2=0
+    for i in range(len(ideaT)):
+        c2+=1
+        if(c2==49):
+            if(ideaT[c2]>ideaT[c2-49]):
+                ideaT[c2]=ideaT[c2-49]
+            if(actual[c2+1]>actual[c2]):
+                ideaT[c2+1]=ideaT[c2]
+    
+    
+    
+    f=open("Every50Cap.csv", "a")
+    """
+    for i in range(len(twoDarr)):
+        for j in range (len(twoDarr[i])):
+    """
+    for i in range(len(ideaT)):        
+            f.write(str(ideaT[i]))
+            f.write("\n")
     f.close()
 ###end every50 const####################################################################
     
@@ -355,6 +382,7 @@ def hunCon(series,actual):
         if(actual[i]<=actual[0]):
             f.write(str(actual[i]))
             f.write("\n")
+        
     f.close()
 ######################################################################
     
@@ -440,8 +468,8 @@ def perfTL(time_series,input_size,hidden_units,dropout,learning_rate,n_ahead,val
     print('MSE with TL: ',mse2)
     
     #print(y_test)
-    #DielecConst(time_series, predictions_noTransfer, capARR)
-   # every50(time_series,predictions_noTransfer,capARR)
+    #DielecConst(time_series, predictions_withTransfer, capARR)
+    #every50(time_series,predictions_noTransfer,capARR)
     #hunCon(time_series,capARR)
     
     firstVAL=capARR[0]
@@ -509,11 +537,11 @@ def perfTL(time_series,input_size,hidden_units,dropout,learning_rate,n_ahead,val
     
 ############ everything below will be implementation based on our data    
     
-input_size=1000
+input_size=1500
 hidden_units=[100,50]
 dropout=False
 learning_rate=4e-5
-n_ahead=399
+n_ahead=563
 val_split=0.2
 epochs=1
 verbose=True
