@@ -24,6 +24,7 @@ from sklearn.model_selection import cross_val_predict
 from sklearn import linear_model
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, LSTM, Dropout
+from scipy.stats import pearsonr
 ###placeholding dict just to write model
 
 
@@ -165,12 +166,12 @@ def graphTL(series,predictions,actual,actualARR,firstVAL,title):
 
     if len(predictions) > 4:
         plt.plot(test_index,predictions,label = 'predictions',color='g')
-        plt.plot(test_index,actualARR,label = 'actual',color='orange')
+        plt.plot(test_index,actual,label = 'actual',color='orange')
         #plt.scatter(every50,label = 'every 50',color='r')
         
     else:
         plt.scatter(test_index,predictions,label = 'prediction',color='g') 
-        plt.scatter(test_index,actualARR,label = 'actual',color='orange')
+        plt.scatter(test_index,actual,label = 'actual',color='orange')
         #plt.scatter(every50,label = 'every 50',color='r')
    ##carbon based for range        
     
@@ -243,8 +244,49 @@ def FitForecast(X_train, y_train, X_test, n_ahead, input_size,
     predictions = predict_ahead(model,X_test,n_ahead)
     return model, predictions, history
 
+###CUSTOM LOSSES###################################################################
 
-def DielecConst(series, predictions, actual):
+def DCcusloss(iqr,y_true,y_pred,y_train,check):
+    if check:
+        def loss(y_true,y_pred):
+            mse=tf.keras.losses.mean_squarred_error(y_true,y_pred)
+            penalty=tf.reduce_mean(tf.square(tf.maximum(0.0,tf.abs(y_pred-np.median(y_train))-0.5*iqr)))
+            total=mse+penalty
+            return total
+        return loss
+    else:
+        return
+
+def FIFcusloss(y_true,y_pred,check):
+    if check:
+        def loss(y_true, y_pred):
+            mse = tf.keras.losses.mean_squared_error(y_true, y_pred)
+            num_cycles = 50
+            batch_size = tf.shape(y_pred)[0]
+            avg_diff = tf.reduce_mean(y_pred[:batch_size-num_cycles] - y_pred[num_cycles:])
+            cycle_penalty = tf.nn.relu(avg_diff)        
+            return mse + cycle_penalty
+        
+        return loss
+    else:
+        return
+
+def HUNcusloss(y_true,y_pred,check):
+    if check:
+        def loss(y_true,y_pred):
+            mse = tf.keras.losses.mean_squared_error(y_true, y_pred)
+            consecutive_penalty = tf.reduce_sum(tf.maximum(0.0, y_pred[1:] - y_pred[:-1]))        
+            return mse + consecutive_penalty
+        
+        return loss
+
+
+
+
+
+#####################################################################################
+
+def DielecConst(series, predictions, actual,train,check):
     
     Carr=np.array([])
     for i in range (len(actual)):
@@ -292,6 +334,8 @@ def DielecConst(series, predictions, actual):
             
     #print(ConstraintRangeArr)
     
+    DCcusloss(ConstraintRangeArr, actual, predictions, train, check)
+    
     back2CapArr=np.array([])
     for i in range(len(ConstraintRangeArr)):
         c=Eo*ConstraintRangeArr[i]*(4/d)
@@ -330,8 +374,12 @@ def DielecConst(series, predictions, actual):
 ####Predict the reversed values move this function to a new file
 
 
+
+
+
+
 ###Every 50##########################################################################
-def every50(series,predictions,actual):
+def every50(series,predictions,actual,check):
     twoDarr=[]
     count=0
     vals=[]
@@ -362,7 +410,7 @@ def every50(series,predictions,actual):
             if(actual[c2+1]>actual[c2]):
                 ideaT[c2+1]=ideaT[c2]
     
-    
+    FIFcusloss(actual,predictions,check)
     
     f=open("Every50Cap.csv", "a")
     """
@@ -376,7 +424,8 @@ def every50(series,predictions,actual):
 ###end every50 const####################################################################
     
 ####100%#####################################################
-def hunCon(series,actual):
+def hunCon(series,actual,predictions):
+    
     f=open("hunConData.csv", "a")
     for i in range(len(actual)):
         if(actual[i]<=actual[0]):
@@ -385,29 +434,240 @@ def hunCon(series,actual):
         
     f.close()
 ######################################################################
+
+def allConstr(series,predictions,actual):
+    status=np.array([])
+    ##100
+    for i in range(len(actual)):
+        if(actual[i]<=actual[0]):
+            status=np.append(actual[i],status)
+    ##End 100
     
+    ##50
+    twoDarr=[]
+    count=0
+    vals=[]
+    ideaT=[]
+    for i in range(len(status)):
+        if(count<50):
+            vals.append(status[i])
+            ideaT.append(status[i])
+            count+=1
+            if(count==49):    
+                twoDarr.append(vals)
+                vals.clear()
+                count=0
+    
+    for i in range(len(twoDarr)-1):
+        for j in range(len(twoDarr[i])):
+            if(twoDarr[i][-1]>twoDarr[i][0]):
+                twoDarr[i][-1]=twoDarr[i][0]
+            if(twoDarr[i+1][0]>twoDarr[i][-1]):    
+                twoDarr[i+1][0]=twoDarr[i][-1]
+                
+    c2=0
+    for i in range(len(ideaT)):
+        c2+=1
+        if(c2==49):
+            if(ideaT[c2]>ideaT[c2-49]):
+                ideaT[c2]=ideaT[c2-49]
+            if(status[c2+1]>status[c2]):
+                ideaT[c2+1]=ideaT[c2]
+    ##End 50
+    
+    ##K constr
+    Carr=np.array([])
+    for i in range (len(ideaT)):
+        Carr=np.append(Carr, ideaT[i])
+    
+    predCarr=np.array([])
+    for i in range(len(predictions)):
+        predCarr=np.append(predCarr, predictions[i])
+        
+    ##Eo: 0.0000088541878128 mF/cm, no calc on me square it to make it mF/cm^2
+    ##Need 2 get A/d
+    d=2*math.sqrt(4/math.pi)
+    Eo=0.0000088541878128*0.0000088541878128
+    Karr=np.array([])
+    for i in range (len(ideaT)):
+        dc=(d*actual[i])/(Eo*4)
+        Karr=np.append(dc, Karr)
+        
+    
+        
+    cycles=np.array([])
+    count=0
+    for i in range (len(Karr)):
+        cycles=np.append(count, cycles)
+        count+=1
+        
+    
+        
+    
+    #print(Karr) 
+    q3,q1=np.percentile(Karr, [75,25])
+   # print(q3-q1)
+        
+    ConstraintRangeArr=np.array([])
+    for i in range (len(Karr)):
+        if((Karr[i]<q3) & (Karr[i]>q1)):
+            ConstraintRangeArr=np.append(Karr[i], ConstraintRangeArr)
+            
+    #print(ConstraintRangeArr)
+    
+    back2CapArr=np.array([])
+    for i in range(len(ConstraintRangeArr)):
+        c=Eo*ConstraintRangeArr[i]*(4/d)
+        back2CapArr=np.append(c,back2CapArr)
+    
+    back2CapArr=np.flipud(back2CapArr)
+
+    f=open("AllConstrData.csv", "a")
+    for i in range(len(back2CapArr)):
+        f.write(str(back2CapArr[i]))
+        f.write("\n")
+    f.close()
+        
+######End allConstr
+
+
+def bestFit(predictions):
+    cycles=np.arange(len(predictions))
+    
+    m,b=np.polyfit(cycles,predictions,1)
+    plt.plot(cycles,predictions,'o')
+    plt.plot(cycles,m*cycles+b)
+    
+    
+    
+def paperGraph(Tpred, Rpred, actual,series,insize):
+    sarr=np.array([])
+    for i in range(len(series)):
+        if(i==insize):
+            break;
+        else:
+            sarr=np.append(sarr,series[i])
+            
+        
+    tARR=np.append(sarr,Tpred)
+    rARR=np.append(sarr,Rpred)
+    aARR=np.append(sarr,actual)
+    
+    tw=int(.2*len(series))
+    fo=int(.4*len(series))
+    si=int(.6*len(series))
+    ei=int(.8*len(series))
+    
+    
+    X=[0,tw,fo,si,ei,int(len(series))]
+    tY=[tARR[0],tARR[tw],tARR[fo],tARR[si],tARR[ei],tARR[-1]]
+    rY=[rARR[0],rARR[tw],rARR[fo],rARR[si],rARR[ei],rARR[-1]]
+    aY=[aARR[0],aARR[tw],aARR[fo],aARR[si],aARR[ei],aARR[-1]]
+    ticks=['0%','20%','40%','60%','80%','100%']
+   
+    plt.figure(figsize=(8,4))
+    plt.title("LIG Predicted Values: LSTM and LSTM with Transfer Learning")
+    plt.xlabel('Cycles from Supercapacitor')
+    plt.ylabel('Capacitance Values (mF/cm^2)')
+    plt.xticks(X,ticks)
+    plt.plot(X,aY,label='Actual',marker='s',color='blue',linewidth=3)
+    plt.plot(X,rY,label='LSTM Prediction',marker='^',color='yellow',linewidth=1.75)
+    plt.plot(X,tY,label='LSTM + Transfer Learning Prediction',marker='D',color='pink',linewidth=.5)
+    '''
+    X_detail=np.linspace(20,40,20)
+    Y_detail=np.sinc(X_detail)
+    sub_axes=plt.axes([60,60,25,25])
+    sub_axes.plot(X_detail,Y_detail,c='k')
+    '''
+    plt.legend(loc='upper left')
+    #plt.tick_params(labelbottom=False)
+    plt.show()
+    
+    '''
+    plt.figure(figsize=(8,4))
+    plt.title("Predicted Values (Just Real Data)")
+    plt.xlabel('Cycles from Supercapacitor')
+    plt.ylabel('Capacitance Values (mF/cm^2)')
+    plt.xticks(X,ticks)
+    plt.plot(X,aY,label='Actual',marker='s',color='black')
+    plt.legend(loc='upper left')
+    #plt.tick_params(labelbottom=False)
+    plt.show()
+    
+    plt.figure(figsize=(8,4))
+    plt.title("Predicted Values without Transfer Learning")
+    plt.xlabel('Cycles from Supercapacitor')
+    plt.ylabel('Capacitance Values (mF/cm^2)')
+    plt.xticks(X,ticks)
+    plt.plot(X,aY,label='Actual',marker='s',color='black')
+    plt.plot(X,rY,label='LSTM Prediction',marker='^',linestyle='dashed',color='orange')
+    plt.legend(loc='upper left')
+    #plt.tick_params(labelbottom=False)
+    plt.show()    
+    
+    plt.figure(figsize=(8,4))
+    plt.title("Predicted Values with Transfer Learning")
+    plt.xlabel('Cycles from Supercapacitor')
+    plt.ylabel('Capacitance Values (mF/cm^2)')
+    plt.xticks(X,ticks)
+    plt.plot(X,aY,label='Actual',marker='s',color='black')
+    plt.plot(X,tY,label='LSTM + Transfer Learning Prediction',marker='D',linestyle='dashed',color='red')
+    plt.legend(loc='upper left')
+    #plt.tick_params(labelbottom=False)
+    plt.show()
+    
+    
+    '''
+    tw=int(.2*len(actual))
+    fo=int(.4*len(actual))
+    si=int(.6*len(actual))
+    ei=int(.8*len(actual))
+    
+    tMSE=[qMSE(actual,actual[0],Tpred[0]),qMSE(actual,actual[tw],Tpred[tw]),qMSE(actual,actual[fo],Tpred[fo]),qMSE(actual,actual[si],Tpred[si]),qMSE(actual,actual[ei],Tpred[ei]),qMSE(actual,actual[-1],Tpred[-1])]
+    rMSE=[qMSE(actual,actual[0],Rpred[0]),qMSE(actual,actual[tw],Rpred[tw]),qMSE(actual,actual[fo],Rpred[fo]),qMSE(actual,actual[si],Rpred[si]),qMSE(actual,actual[ei],Rpred[ei]),qMSE(actual,actual[-1],Rpred[-1])]
+
+    plt.figure(figsize=(8,4))
+    #plt.yscale("log")
+    plt.title("MSE Values")
+    plt.xlabel('Cycles from Supercapacitor')
+    plt.ylabel('MSE')
+    plt.xticks(X,ticks)
+    plt.plot(X,tMSE,label='LSTM',marker='s',color='blue')
+    plt.plot(X,rMSE,label='LSTM + Transfer Learning',marker='D',linestyle='dashed',color='red')
+    plt.legend(loc='upper left')
+    #plt.tick_params(labelbottom=False)
+    plt.show()
+
+
+
+def qMSE(s,x,y):
+    return ((y-x)*(y-x))/(len(s))
+
+#def correl(ts,pred,test):
+    #c,_= pearsonr(test,pred)
+    #print("Correlation: ",c)
 
 def perfTL(time_series,input_size,hidden_units,dropout,learning_rate,n_ahead,val_split,epochs,verbose,plot,model):    
-    
+    tf=False
     #count=0
     actualARR=np.array([])
     
     capARR=np.array([])
-    with open('actualvalues1.csv') as csvDataFile:
+    with open('observed(PreGraph).csv') as csvDataFile:
         csvReader = csv.reader(csvDataFile)
         for row in csvReader:
             capARR= np.append(capARR, float(row[0]))
             
            
                 
-    with open('actualForGraphing.csv') as csvDataFile:
+    with open('ObservedForGraphing.csv') as csvDataFile:
             csvReader = csv.reader(csvDataFile)
             for row in csvReader:
                 actualARR= np.append(actualARR, float(row[0]))
                 
             
     fullCapArr=np.array([])
-    with open('realtest1.csv') as csvDataFile:
+    with open('FullData.csv') as csvDataFile:
         csvReader = csv.reader(csvDataFile)
         for row in csvReader:
             fullCapARR= np.append(fullCapArr, float(row[0]))
@@ -416,7 +676,7 @@ def perfTL(time_series,input_size,hidden_units,dropout,learning_rate,n_ahead,val
     
     scaled_series, scaler = preprocessing(time_series)
     series, y_test, n_test = getSeries(scaled_series,0.8)
-    X_train,y_train,X_test = getInputOutput(series,input_size)
+    X_train,y_train,X_test = getInputOutput(scaled_series,input_size)
 
     # show only n_ahead number of actual values
     #print(y_test[np.arange(n_ahead)])
@@ -462,93 +722,73 @@ def perfTL(time_series,input_size,hidden_units,dropout,learning_rate,n_ahead,val
     print(len(actualARR))
     print(len(predictions_noTransfer))
     
-    mse1= MSE(actualARR,predictions_noTransfer)
-    mse2=MSE(actualARR,predictions_withTransfer)
+    mse1= MSE(y_test,predictions_noTransfer)
+    mse2=MSE(y_test,predictions_withTransfer)
     print('MSE without TL: ',mse1)
     print('MSE with TL: ',mse2)
     
-    #print(y_test)
-    #DielecConst(time_series, predictions_withTransfer, capARR)
-    #every50(time_series,predictions_noTransfer,capARR)
-    #hunCon(time_series,capARR)
+    print(y_test)
+    DielecConst(time_series, predictions_withTransfer, capARR,y_train,tf)
+    #every50(time_series,predictions_withTransfer,capARR,tf)
+    #hunCon(time_series,capARR,tf)
+    #allConstr(time_series,predictions_withTransfer,capARR,tf)
+    ##LIG:
+        #MSE without TL:  [3.24313429e+10]
+##MSE with TL:  [3.24316125e+10]
     
     firstVAL=capARR[0]
     
-    """
-    every50=np.array([])
-    FVARR=np.array([])
-    x=1
-    fifcount=0
+  
+    
+    graphTL(series,predictions_noTransfer,y_test,actualARR,firstVAL,title='Without Transfer')
+    graphTL(series,predictions_withTransfer,y_test,actualARR,firstVAL,title='With Transfer')
+    #correl(series, predictions_withTransfer, y_test)
+    #correl(series, predictions_noTransfer, y_test)
+ #   paperGraph(predictions_withTransfer,predictions_noTransfer,actualARR,capARR,input_size)
+    
+    
+    f=open("LSTM_withoutTL_50thCycle(DAL).csv", "a")
     for i in range(len(predictions_noTransfer)):
-       if x==50:
-           every50=np.append(every50, predictions_noTransfer[i])
-           x=1
-           fifcount+=1
-       else:
-           x+=1
+            f.write(str(predictions_noTransfer[i]))
+            f.write("\n")
+    f.close()    
+    
+    
+    f2=open("LSTM_withTL_50thCycle(DAL).csv", "a")
+    for i in range(len(predictions_withTransfer)):
+            f2.write(str(predictions_withTransfer[i]))
+            f2.write("\n")
+    f2.close()
+    
 
-    for i in range(fifcount):
-        FVARR=np.append(FVARR, firstVAL)
+
+
+    f=open("TestDataFile.csv", "a")
+    #for i in range(len(y_test)):
+        #new_y_test=y_test.transpose() 
+        #ny_test=y_test.reshape(-1,1)
+    f.write(str(y_test))
+    f.write("\n")
+    f.close() 
     
-    plt.figure(figsize=(8,4))
-    plt.title("Without TL")
-    plt.plot(predictions_noTransfer,label = 'predictions',color='b')
-    plt.plot(predictions_withTransfer,label='predictions with TL',color='g')
-    plt.plot(FVARR,label='first value',linestyle='dashed',color='r')
-    
-    """
-    
-    
-    
-    """
-    fig, ax=plt.subplots()
-    ax.scatter(FVARR, every50)
-    ax.plot([FVARR.min(), FVARR.max()], [FVARR.min(), FVARR.max()], 'k--', lw=4)
-    ax.set_xlabel('Measured')
-    ax.set_ylabel('Predicted')
-    plt.show()
-    
-    every50.clear()
-    x=1
-    for i in range(len(predictions_noTransfer)):
-       if x==50:
-           every50=np.append(every50, predictions_noTransfer[i])
-           x=1
-       else:
-           x+=1
-    
-    fig, ax=plt.subplots()
-    ax.scatter(FVARR, every50)
-    ax.plot([FVARR.min(), FVARR.max()], [FVARR.min(), FVARR.max()], 'k--', lw=4)
-    ax.set_xlabel('Measured')
-    ax.set_ylabel('Predicted')
-    plt.show()
-        
-    graphTL(series,predictions_noTransfer,y_test,actualARR,firstVAL,title='Without Transfer')
-    graphTL(series,predictions_withTransfer,y_test,actualARR,firstVAL,title='With Transfer')
-    
-    """
-    
-    graphTL(series,predictions_noTransfer,y_test,actualARR,firstVAL,title='Without Transfer')
-    graphTL(series,predictions_withTransfer,y_test,actualARR,firstVAL,title='With Transfer')
     
     
     
     
 ############ everything below will be implementation based on our data    
     
-input_size=1500
+input_size=636
 hidden_units=[100,50]
 dropout=False
 learning_rate=4e-5
-n_ahead=563
+n_ahead=160
 val_split=0.2
 epochs=1
 verbose=True
 plot=False
 
 capARR=[]
-with open('realtest1.csv') as csvDataFile:
+with open('FullData.csv') as csvDataFile:
     csvReader = csv.reader(csvDataFile)
     for row in csvReader:
         capARR.append(float(row[0])) 
